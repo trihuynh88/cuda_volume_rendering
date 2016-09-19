@@ -372,7 +372,8 @@ void kernel(int* dim, int *size, double hor_extent, double ver_extent, int chann
             alpha = cu_computeAlpha(val, gradw_len, isoval, alphamax, thickness);
             alpha = 1 - pow(1-alpha,raystep/refstep);
             transp *= (1-alpha);
-            accColor = accColor*(1-alpha) + pointColor*alpha;            
+            accColor = accColor*(1-alpha) + pointColor*alpha;
+
             valgfp = tex3DBicubic<float,float>(tex0,indPoint[0],indPoint[1],indPoint[2]);
 
             mipVal = max(mipVal,valgfp*cu_inAlpha(val,gradw_len,isoval,thickness));
@@ -851,9 +852,8 @@ int main(int argc, const char **argv)
                        static_cast<size_t>(width),
                        static_cast<size_t>(height))
         || nrrdQuantize(nout, ndbl_1, NULL, 8)
-        || nrrdSave(outNamePng, nout, NULL)
-        ) 
-    {
+        || nrrdSave(outNamePng, nout, NULL)       
+        ) {
         char *err = biffGetDone(NRRD);
         airMopAdd(mop, err, airFree, airMopAlways);
         printf("%s: couldn't save output:\n%s", argv[0], err);

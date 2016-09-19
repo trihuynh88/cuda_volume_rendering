@@ -296,9 +296,18 @@ double cu_inAlpha(double val, double grad_len, double isoval, double thickness)
     }
 }
 
+__host__ __device__
+void normalize(double *a, int s)
+{
+    double len = lenVec(a,s);
+    for (int i=0; i<s; i++)
+        a[i] = a[i]/len;
+}
+
+
 __global__
 void kernel(int* dim, int *size, double hor_extent, double ver_extent, int channel, int pixSize, double *center, double *viewdir, double *right, double *up, double *light_dir,
-        double nc, double fc, double raystep, double* mat_trans, double* mat_trans_inv, double* MT_BE_inv, double phongKa, double phongKd, double isoval, double alphamax, double thickness,
+        double nc, double fc, double raystep, double refstep, double* mat_trans, double* mat_trans_inv, double* MT_BE_inv, double phongKa, double phongKd, double isoval, double alphamax, double thickness,
         int nOutChannel, double* imageDouble
         )
 {
@@ -352,15 +361,18 @@ void kernel(int* dim, int *size, double hor_extent, double ver_extent, int chann
 
             cu_mulMatPoint3(MT_BE_inv, gradi, gradw);
             gradw_len = lenVec(gradw,3);
-            //gradi_len = lenVec(gradi,3);
+
+            //negating and normalizing
+            for (int l=0; l<3; l++)
+                gradw[l] = -gradw[l]/gradw_len;
 
             depth = (k*1.0+1)/(fc*1.0-nc);
 
             pointColor = phongKa + depth*phongKd*max(0.0f,dotProduct(gradw,light_dir,3));
             alpha = cu_computeAlpha(val, gradw_len, isoval, alphamax, thickness);
+            alpha = 1 - pow(1-alpha,raystep/refstep);
             transp *= (1-alpha);
-            accColor = accColor*(1-alpha) + pointColor*alpha;
-
+            accColor = accColor*(1-alpha) + pointColor*alpha;            
             valgfp = tex3DBicubic<float,float>(tex0,indPoint[0],indPoint[1],indPoint[2]);
 
             mipVal = max(mipVal,valgfp*cu_inAlpha(val,gradw_len,isoval,thickness));
@@ -449,13 +461,6 @@ void subtractVec(double *a, double *b, double *c, int s)
         c[i] = a[i]-b[i];
 }
 
-void normalize(double *a, int s)
-{
-    double len = lenVec(a,s);
-    for (int i=0; i<s; i++)
-        a[i] = a[i]/len;
-}
-
 void cross(double *u, double *v, double *w)
 {
     w[0] = u[1]*v[2]-u[2]*v[1];
@@ -485,7 +490,7 @@ unsigned char quantizeDouble(double val, double minVal, double maxVal)
 }
 
 //3D data, fastest to slowest
-void quantizeImageDouble3D(double *input, double *output, int s0, int s1, int s2)
+void quantizeImageDouble3D(double *input, unsigned char *output, int s0, int s1, int s2)
 {
     double maxVal[4];
     maxVal[0] = maxVal[1] = maxVal[2] = -(1<<15);
@@ -506,7 +511,7 @@ void quantizeImageDouble3D(double *input, double *output, int s0, int s1, int s2
         for (int j=0; j<s1; j++)
             for (int k=0; k<s0; k++)
             {
-                output[i*s1*s0+j*s0+k] = (double)quantizeDouble(input[i*s1*s0+j*s0+k],minVal[k],maxVal[k]);
+                output[i*s1*s0+j*s0+k] = quantizeDouble(input[i*s1*s0+j*s0+k],minVal[k],maxVal[k]);
             }
 }
 
@@ -521,7 +526,7 @@ int main(int argc, const char **argv)
     airArray *mop;
 
     Nrrd *nin;
-    double fr[3], at[3], up[3], nc, fc, fov, light_dir[3], isoval, raystep, thickness, alphamax, phongKa, phongKd;
+    double fr[3], at[3], up[3], nc, fc, fov, light_dir[3], isoval, raystep, refstep, thickness, alphamax, phongKa, phongKd;
     int size[2];
     const char *me = argv[0];
     char *outName, *outNamePng;
@@ -551,6 +556,8 @@ int main(int argc, const char **argv)
                "iso-value");
     hestOptAdd(&hopt, "step", "ray-step", airTypeDouble, 1, 1, &raystep, "0.1",
                "ray traversing step");
+    hestOptAdd(&hopt, "refstep", "ref-step", airTypeDouble, 1, 1, &refstep, "1",
+               "ref-step");
     hestOptAdd(&hopt, "thick", "thickness", airTypeDouble, 1, 1, &thickness, "0.5",
                "thickness around iso-value");
     hestOptAdd(&hopt, "alpha", "max-alpha", airTypeDouble, 1, 1, &alphamax, "1",
@@ -567,6 +574,9 @@ int main(int argc, const char **argv)
                    AIR_TRUE, AIR_TRUE, AIR_TRUE);
     airMopAdd(mop, hopt, (airMopper)hestOptFree, airMopAlways);
     airMopAdd(mop, hopt, (airMopper)hestParseFree, airMopAlways);
+
+    //process input
+    normalize(light_dir,3);
 
     unsigned int pixSize = 1;
     cudaChannelFormatDesc channelDesc;
@@ -802,7 +812,7 @@ int main(int argc, const char **argv)
     dim3 numBlocks((size[0]+numThread1D-1)/numThread1D,(size[1]+numThread1D-1)/numThread1D);
 
     kernel<<<numBlocks,threadsPerBlock>>>(d_dim, d_size, hor_extent, ver_extent, channel, pixSize,
-                                          d_center, d_viewdir, d_right, d_up, d_light_dir, nc, fc, raystep, d_mat_trans,
+                                          d_center, d_viewdir, d_right, d_up, d_light_dir, nc, fc, raystep, refstep, d_mat_trans,
                                           d_mat_trans_inv, d_MT_BE_inv, phongKa, phongKd, isoval, alphamax, thickness, nOutChannel, d_imageDouble                                          
                                           );
     
@@ -820,9 +830,10 @@ int main(int argc, const char **argv)
     short height = size[1];
 
     double *imageSave = new double[size[0]*size[1]];
-    quantizeImageDouble3D(imageDouble,imageDouble,4,size[0],size[1]);
+    unsigned char *imageQuantized = new unsigned char[size[0]*size[1]*4];
+    quantizeImageDouble3D(imageDouble,imageQuantized,4,size[0],size[1]);
     sliceImageDouble(imageDouble,4,size[0],size[1],imageSave,0);
-/*
+
     Nrrd *nout = nrrdNew();
     Nrrd *ndbl = nrrdNew();
     Nrrd *ndbl_1 = nrrdNew();
@@ -831,18 +842,24 @@ int main(int argc, const char **argv)
     airMopAdd(mop, ndbl_1, (airMopper)nrrdNix, airMopAlways);
 
     //printf("before saving result\n");  
-    if (nrrdWrap_va(ndbl, imageDouble, nrrdTypeDouble, 3, 4, width, height)
-        || nrrdWrap_va(ndbl_1, imageSave, nrrdTypeDouble, 2, width, height)
+    if (nrrdWrap_va(ndbl, imageDouble, nrrdTypeDouble, 3,
+                    static_cast<size_t>(4),
+                    static_cast<size_t>(width),
+                    static_cast<size_t>(height))
+        || nrrdSave(outName,ndbl,NULL)
+        || nrrdWrap_va(ndbl_1, imageSave, nrrdTypeDouble, 2,
+                       static_cast<size_t>(width),
+                       static_cast<size_t>(height))
         || nrrdQuantize(nout, ndbl_1, NULL, 8)
         || nrrdSave(outNamePng, nout, NULL)
-        || nrrdSave(outName,ndbl,NULL)
-        ) {
+        ) 
+    {
         char *err = biffGetDone(NRRD);
         airMopAdd(mop, err, airFree, airMopAlways);
         printf("%s: couldn't save output:\n%s", argv[0], err);
         airMopError(mop); exit(1);
     }
-*/
+
     airMopOkay(mop);
 
 
@@ -855,10 +872,10 @@ int main(int argc, const char **argv)
     for(int x=0; x<height; x++)
         for(int y=0; y<width; y++)
         {
-            c.r = (unsigned char)imageDouble[x*width*4+y*4];
-            c.g = (unsigned char)imageDouble[x*width*4+y*4+1];
-            c.b = (unsigned char)imageDouble[x*width*4+y*4+2];
-            c.a = (unsigned char)imageDouble[x*width*4+y*4+3];
+            c.r = imageQuantized[x*width*4+y*4];
+            c.g = imageQuantized[x*width*4+y*4+1];
+            c.b = imageQuantized[x*width*4+y*4+2];
+            c.a = imageQuantized[x*width*4+y*4+3];
             img->setPixel(c,x,y);
         }
     

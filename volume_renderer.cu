@@ -822,7 +822,7 @@ int main(int argc, const char **argv)
     double *imageSave = new double[size[0]*size[1]];
     quantizeImageDouble3D(imageDouble,imageDouble,4,size[0],size[1]);
     sliceImageDouble(imageDouble,4,size[0],size[1],imageSave,0);
-/*
+
     Nrrd *nout = nrrdNew();
     Nrrd *ndbl = nrrdNew();
     Nrrd *ndbl_1 = nrrdNew();
@@ -830,19 +830,24 @@ int main(int argc, const char **argv)
     airMopAdd(mop, ndbl, (airMopper)nrrdNix, airMopAlways);
     airMopAdd(mop, ndbl_1, (airMopper)nrrdNix, airMopAlways);
 
-    //printf("before saving result\n");  
-    if (nrrdWrap_va(ndbl, imageDouble, nrrdTypeDouble, 3, 4, width, height)
-        || nrrdWrap_va(ndbl_1, imageSave, nrrdTypeDouble, 2, width, height)
+    printf("saving %hd x %hd result\n", width, height);
+    if (nrrdWrap_va(ndbl, imageDouble, nrrdTypeDouble, 3,
+                    static_cast<size_t>(4),
+                    static_cast<size_t>(width),
+                    static_cast<size_t>(height))
+        || nrrdSave(outName,ndbl,NULL)
+        || nrrdWrap_va(ndbl_1, imageSave, nrrdTypeDouble, 2,
+                       static_cast<size_t>(width),
+                       static_cast<size_t>(height))
         || nrrdQuantize(nout, ndbl_1, NULL, 8)
         || nrrdSave(outNamePng, nout, NULL)
-        || nrrdSave(outName,ndbl,NULL)
         ) {
         char *err = biffGetDone(NRRD);
         airMopAdd(mop, err, airFree, airMopAlways);
         printf("%s: couldn't save output:\n%s", argv[0], err);
         airMopError(mop); exit(1);
     }
-*/
+
     airMopOkay(mop);
 
 

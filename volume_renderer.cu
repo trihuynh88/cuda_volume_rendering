@@ -527,17 +527,16 @@ int main(int argc, const char **argv)
     hestParm *hparm;
     airArray *mop;
 
-    Nrrd *nin;
     double fr[3], at[3], up[3], nc, fc, fov, light_dir[3], isoval, raystep, refstep, thickness, alphamax, phongKa, phongKd;
     int size[2];
     const char *me = argv[0];
-    char *outName, *outNamePng;
+    char *inName, *outName, *outNamePng;
     mop = airMopNew();
     hparm = hestParmNew();
     airMopAdd(mop, hparm, (airMopper)hestParmFree, airMopAlways);
     hparm->noArgsIsNoProblem = true;
-    hestOptAdd(&hopt, "i", "nin", airTypeOther, 1, 1, &nin, "parab_20_20_80.nrrd",
-               "input volume to render", NULL, NULL, nrrdHestNrrd);
+    hestOptAdd(&hopt, "i", "nin", airTypeString, 1, 1, &inName, "parab_20_20_80.nrrd",
+               "input volume to render");
     hestOptAdd(&hopt, "fr", "from", airTypeDouble, 3, 3, fr, "-50 0 0",
                "look-from point");
     hestOptAdd(&hopt, "at", "at", airTypeDouble, 3, 3, at, "0 0 0",
@@ -576,6 +575,15 @@ int main(int argc, const char **argv)
                    AIR_TRUE, AIR_TRUE, AIR_TRUE);
     airMopAdd(mop, hopt, (airMopper)hestOptFree, airMopAlways);
     airMopAdd(mop, hopt, (airMopper)hestParseFree, airMopAlways);
+
+    Nrrd *nin=nrrdNew();
+    airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
+    if (nrrdLoad(nin, inName, NULL)) {
+        char *err = biffGetDone(NRRD);
+        airMopAdd(mop, err, airFree, airMopAlways);
+        printf("%s: couldn't read input:\n%s", argv[0], err);
+        airMopError(mop); exit(1);
+    }
 
     //process input
     normalize(light_dir,3);

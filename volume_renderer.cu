@@ -578,7 +578,9 @@ int main(int argc, const char **argv)
 
     Nrrd *nin=nrrdNew();
     airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
-    if (nrrdLoad(nin, inName, NULL)) {
+    Nrrd *nio=nrrdIoStateNew();
+    airMopAdd(mop, nio, (airMopper)nrrdIoStateNix, airMopAlways);
+    if (nrrdLoad(nin, inName, nio)) {
         char *err = biffGetDone(NRRD);
         airMopAdd(mop, err, airFree, airMopAlways);
         printf("%s: couldn't read input:\n%s", argv[0], err);

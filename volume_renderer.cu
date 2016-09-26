@@ -578,7 +578,7 @@ int main(int argc, const char **argv)
 
     Nrrd *nin=nrrdNew();
     airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
-    Nrrd *nio=nrrdIoStateNew();
+    NrrdIoState *nio=nrrdIoStateNew();
     airMopAdd(mop, nio, (airMopper)nrrdIoStateNix, airMopAlways);
     if (nrrdLoad(nin, inName, nio)) {
         char *err = biffGetDone(NRRD);

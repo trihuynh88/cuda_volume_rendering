@@ -577,7 +577,7 @@ int main(int argc, const char **argv)
     airMopAdd(mop, hopt, (airMopper)hestParseFree, airMopAlways);
 
     Nrrd *nin=nrrdNew();
-    airMopAdd(mop, nin, (airMopper)nrrdNuke, airMopAlways);
+    airMopAdd(mop, nin, (airMopper)nrrdNix, airMopAlways);
     NrrdIoState *nio=nrrdIoStateNew();
     airMopAdd(mop, nio, (airMopper)nrrdIoStateNix, airMopAlways);
     nio->skipData = AIR_TRUE;
@@ -589,25 +589,29 @@ int main(int argc, const char **argv)
     }
     printf("data will be %u-D array of %s\n", nin->dim,
            airEnumStr(nrrdType, nin->type));
-    if (4 == nin->dim) {
+    if (4 == nin->dim && nrrdTypeShort == nin->type) {
        printf("4D array sizes: %u %u %u %u\n",
-              (size_t)(nin->axis[0].size),
-              (size_t)(nin->axis[1].size),
-              (size_t)(nin->axis[2].size),
-              (size_t)(nin->axis[3].size));
+              (unsigned int)(nin->axis[0].size),
+              (unsigned int)(nin->axis[1].size),
+              (unsigned int)(nin->axis[2].size),
+              (unsigned int)(nin->axis[3].size));
        /* example allocation */
-       short *sdata = calloc(nin->axis[0].size*nin->axis[1].size
+       short *sdata = (short*)calloc(nin->axis[0].size*nin->axis[1].size
                              *nin->axis[2].size*nin->axis[3].size, sizeof(short));
-       nin->data = sdata;
+       nin->data = (void*)sdata;
        printf("pre-allocated data at %p\n", nin->data);
        nio->skipData = AIR_FALSE;
-       if (nrrdLoad(nin, inName, nio)) {
+       //nrrdInit(nin);
+       if (nrrdLoad(nin, inName, NULL)) {
            char *err = biffGetDone(NRRD);
            airMopAdd(mop, err, airFree, airMopAlways);
            printf("%s: couldn't read input data:\n%s", argv[0], err);
            airMopError(mop); exit(1);
        }
        printf("post nrrdLoad: data at %p\n", nin->data);
+    } else {
+        fprintf(stderr, "didn't get 4D short array; no data allocated; fix me");
+        airMopError(mop); exit(1);
     }
 
     //process input

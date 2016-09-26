@@ -5,14 +5,15 @@
 #include <cuda.h>
 #include "teem/nrrd.h"
 #include "Image.h"
+#include "sstream"
 
 using namespace std;
 
 #define PI 3.14159265
 
 
-texture<float, 3, cudaReadModeElementType> tex0;  // 3D texture
-texture<float, 3, cudaReadModeElementType> tex1;  // 3D texture
+texture<short, 3, cudaReadModeNormalizedFloat> tex0;  // 3D texture
+texture<short, 3, cudaReadModeNormalizedFloat> tex1;  // 3D texture
 cudaArray *d_volumeArray0 = 0;
 cudaArray *d_volumeArray1 = 0;
 
@@ -96,7 +97,7 @@ T cubicFilter_G(float x, T c0, T c1, T c2, T c3)
 
 template<class T, class R>  // texture data type, return type
 __device__
-R tex3DBicubicXY(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubicXY(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float px = floor(x);
     float py = floor(y);
@@ -114,7 +115,7 @@ R tex3DBicubicXY(const texture<T, 3, cudaReadModeElementType> texref, float x, f
 //gradient in X direction
 template<class T, class R>  // texture data type, return type
 __device__
-R tex3DBicubicXY_GX(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubicXY_GX(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float px = floor(x);
     float py = floor(y);
@@ -131,7 +132,7 @@ R tex3DBicubicXY_GX(const texture<T, 3, cudaReadModeElementType> texref, float x
 
 template<class T, class R>  // texture data type, return type
 __device__
-R tex3DBicubicXY_GY(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubicXY_GY(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float px = floor(x);
     float py = floor(y);
@@ -148,7 +149,7 @@ R tex3DBicubicXY_GY(const texture<T, 3, cudaReadModeElementType> texref, float x
 
 template<class T, class R>
 __device__
-R tex3DBicubic(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubic(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float pz = floor(z);
     float fz = z - pz;
@@ -162,7 +163,7 @@ R tex3DBicubic(const texture<T, 3, cudaReadModeElementType> texref, float x, flo
 
 template<class T, class R>
 __device__
-R tex3DBicubic_GX(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubic_GX(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float pz = floor(z);
     float fz = z - pz;
@@ -176,7 +177,7 @@ R tex3DBicubic_GX(const texture<T, 3, cudaReadModeElementType> texref, float x, 
 
 template<class T, class R>
 __device__
-R tex3DBicubic_GY(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubic_GY(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float pz = floor(z);
     float fz = z - pz;
@@ -190,7 +191,7 @@ R tex3DBicubic_GY(const texture<T, 3, cudaReadModeElementType> texref, float x, 
 
 template<class T, class R>
 __device__
-R tex3DBicubic_GZ(const texture<T, 3, cudaReadModeElementType> texref, float x, float y, float z)
+R tex3DBicubic_GZ(const texture<T, 3, cudaReadModeNormalizedFloat> texref, float x, float y, float z)
 {
     float pz = floor(z);
     float fz = z - pz;
@@ -342,7 +343,7 @@ void kernel(int* dim, int *size, double hor_extent, double ver_extent, int chann
     double depth;
     double pointColor;
     double alpha;
-    double mipVal = -1;
+    double mipVal = 0;
     double valgfp;
 
     for (double k=0; k<fc-nc; k+=raystep)
@@ -353,11 +354,11 @@ void kernel(int* dim, int *size, double hor_extent, double ver_extent, int chann
         if (cu_isInsideDouble(indPoint[0],indPoint[1],indPoint[2],dim[1],dim[2],dim[3]))
 		{
 
-            val = tex3DBicubic<float,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
+            val = tex3DBicubic<short,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
             
-            gradi[0] = tex3DBicubic_GX<float,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
-            gradi[1] = tex3DBicubic_GY<float,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
-            gradi[2] = tex3DBicubic_GZ<float,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
+            gradi[0] = tex3DBicubic_GX<short,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
+            gradi[1] = tex3DBicubic_GY<short,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
+            gradi[2] = tex3DBicubic_GZ<short,float>(tex1,indPoint[0],indPoint[1],indPoint[2]);
 
             cu_mulMatPoint3(MT_BE_inv, gradi, gradw);
             gradw_len = lenVec(gradw,3);
@@ -374,7 +375,7 @@ void kernel(int* dim, int *size, double hor_extent, double ver_extent, int chann
             transp *= (1-alpha);
             accColor = accColor*(1-alpha) + pointColor*alpha;
 
-            valgfp = tex3DBicubic<float,float>(tex0,indPoint[0],indPoint[1],indPoint[2]);
+            valgfp = tex3DBicubic<short,float>(tex0,indPoint[0],indPoint[1],indPoint[2]);
 
             mipVal = max(mipVal,valgfp*cu_inAlpha(val,gradw_len,isoval,thickness));
 		}
@@ -494,9 +495,9 @@ unsigned char quantizeDouble(double val, double minVal, double maxVal)
 void quantizeImageDouble3D(double *input, unsigned char *output, int s0, int s1, int s2)
 {
     double maxVal[4];
-    maxVal[0] = maxVal[1] = maxVal[2] = -(1<<15);
+    maxVal[0] = maxVal[1] = maxVal[2] = maxVal[3] = -(1<<15);
     double minVal[4];
-    minVal[0] = minVal[1] = minVal[2] = ((1<<15) - 1);
+    minVal[0] = minVal[1] = minVal[2] = minVal[3] = ((1<<15) - 1);
 
     for (int i=0; i<s2; i++)
         for (int j=0; j<s1; j++)
@@ -604,8 +605,8 @@ int main(int argc, const char **argv)
             break;
     }
     */
-    pixSize = sizeof(float);
-    channelDesc = cudaCreateChannelDesc<float>();
+    pixSize = sizeof(short);
+    channelDesc = cudaCreateChannelDesc<short>();
     /* 2-channel data will have:
        4 == nin->dim
        2 == nin->axis[0].size
@@ -653,8 +654,8 @@ int main(int argc, const char **argv)
     int channel = 1;
     //int filesize = dim[0]*dim[1]*dim[2]*dim[3]*pixSize;
 
-    float* filemem0 = new float[dim[1]*dim[2]*dim[3]];
-    float* filemem1 = new float[dim[1]*dim[2]*dim[3]];
+    short* filemem0 = new short[dim[1]*dim[2]*dim[3]];
+    short* filemem1 = new short[dim[1]*dim[2]*dim[3]];
 
     //filemem = (char*)nin->data;
     for (int i=0; i<dim[1]*dim[2]*dim[3]; i++)
@@ -833,7 +834,7 @@ int main(int argc, const char **argv)
     double *imageSave = new double[size[0]*size[1]];
     unsigned char *imageQuantized = new unsigned char[size[0]*size[1]*4];
     quantizeImageDouble3D(imageDouble,imageQuantized,4,size[0],size[1]);
-    sliceImageDouble(imageDouble,4,size[0],size[1],imageSave,0);
+    sliceImageDouble(imageDouble,4,size[0],size[1],imageSave,3);
 
     Nrrd *nout = nrrdNew();
     Nrrd *ndbl = nrrdNew();
@@ -880,8 +881,42 @@ int main(int argc, const char **argv)
         }
     
     //write the image to disk
-    string imagename = "test.tga";
+    string imagename = "test_short.tga";
     img->WriteImage(imagename);
+
+    for (int k=0; k<4; k++)
+    {
+        //Loop through image and set all pixels to red
+        for(int x=0; x<height; x++)
+            for(int y=0; y<width; y++)
+            {
+                c.r = c.g = c.b = 0;
+                c.a = 255;
+                switch (k)
+                {
+                    case 0:
+                        c.r = imageQuantized[x*width*4+y*4];            
+                        break;
+                    case 1:
+                        c.g = imageQuantized[x*width*4+y*4+1];
+                        break;
+                    case 2:
+                        c.b = imageQuantized[x*width*4+y*4+2];
+                        break;
+                    case 3:
+                        c.a = imageQuantized[x*width*4+y*4+3];
+                        break;
+                }                
+
+                img->setPixel(c,x,y);
+            }
+        
+        //write the image to disk
+        ostringstream ss;
+        ss << k;
+        string imagename = "test_short_"+ss.str()+".tga";
+        img->WriteImage(imagename);    
+    }
     delete img;
     
     //cleaning up

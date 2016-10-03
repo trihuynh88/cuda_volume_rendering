@@ -307,7 +307,7 @@ void normalize(double *a, int s)
 
 
 __global__
-void kernel(int* dim, int *size, double hor_extent, double ver_extent, int channel, int pixSize, double *center, double *viewdir, double *right, double *up, double *light_dir,
+void kernel(int* dim, int *size, double hor_extent, double ver_extent, double *center, double *viewdir, double *right, double *up, double *light_dir,
         double nc, double fc, double raystep, double refstep, double* mat_trans, double* mat_trans_inv, double* MT_BE_inv, double phongKa, double phongKd, double isoval, double alphamax, double thickness,
         int nOutChannel, double* imageDouble
         )
@@ -617,40 +617,21 @@ int main(int argc, const char **argv)
     //process input
     normalize(light_dir,3);
 
-    unsigned int pixSize = 1;
     cudaChannelFormatDesc channelDesc;
-    /*
-    switch (nin->type)
-    {
-        case nrrdTypeFloat:
-            pixSize = sizeof(float);
-            channelDesc = cudaCreateChannelDesc<float>();
-            break;
-        case nrrdTypeShort:
-            pixSize = sizeof(short);
-            channelDesc = cudaCreateChannelDesc<short>();
-            break;
-        case nrrdTypeDouble:
-            pixSize = sizeof(double);
-            channelDesc = cudaCreateChannelDesc<double>();
-            break;            
-        case nrrdTypeInt:
-            pixSize = sizeof(int);
-            channelDesc = cudaCreateChannelDesc<int>();
-            break;            
-        default:
-            break;
-    }
-    */
-    pixSize = sizeof(short);
+   
     channelDesc = cudaCreateChannelDesc<short>();
     /* 2-channel data will have:
        4 == nin->dim
-       2 == nin->axis[0].size
        3 == nin->spaceDim */
-    if (3 != nin->dim && 3 != nin->spaceDim) {
-        fprintf(stderr, "%s: need 3D array in 3D space, (not %uD in %uD)\n",
+    if (4 != nin->dim || 3 != nin->spaceDim) {
+        fprintf(stderr, "%s: need 3D array in 4D space, (not %uD in %uD)\n",
 		argv[0], nin->dim, nin->spaceDim);
+        airMopError(mop); exit(1);
+    }
+
+    if (nin->axis[3].size != 2) {
+        fprintf(stderr, "%s: need the slowest axis of size 2, (not %uD)\n",
+        argv[0], (unsigned int)nin->axis[3].size);
         airMopError(mop); exit(1);
     }
 
@@ -660,50 +641,17 @@ int main(int argc, const char **argv)
     mat_trans[3][3] = 1;
 
     int dim[4];
-    if (nin->dim == 3)
-    {
-        dim[0] = 1;
-        dim[1] = nin->axis[0].size;
-        dim[2] = nin->axis[1].size;
-        dim[3] = nin->axis[2].size;
-        for (int i=0; i<3; i++) {
-            for (int j=0; j<3; j++) {
-                /* for 2-channel data; this "i" should be "i+1" */
-                mat_trans[j][i] = nin->axis[i].spaceDirection[j];
-            }
-            mat_trans[i][3] = nin->spaceOrigin[i];
+    
+    dim[0] = nin->axis[3].size;
+    dim[1] = nin->axis[0].size;
+    dim[2] = nin->axis[1].size;
+    dim[3] = nin->axis[2].size;
+    for (int i=0; i<3; i++) {
+        for (int j=0; j<3; j++) {
+            mat_trans[j][i] = nin->axis[i].spaceDirection[j];
         }
+        mat_trans[i][3] = nin->spaceOrigin[i];
     }
-    else //4-channel
-    {
-        dim[0] = nin->axis[0].size;
-        dim[1] = nin->axis[1].size;
-        dim[2] = nin->axis[2].size;
-        dim[3] = nin->axis[3].size;
-        for (int i=0; i<3; i++) {
-            for (int j=0; j<3; j++) {
-                /* for 2-channel data; this "i" should be "i+1" */
-                mat_trans[j][i] = nin->axis[i+1].spaceDirection[j];
-            }
-            mat_trans[i][3] = nin->spaceOrigin[i];
-        }
-    }
-    int channel = 1;
-    //int filesize = dim[0]*dim[1]*dim[2]*dim[3]*pixSize;
-
-    short* filemem0 = new short[dim[1]*dim[2]*dim[3]];
-    short* filemem1 = new short[dim[1]*dim[2]*dim[3]];
-
-    //filemem = (char*)nin->data;
-    for (int i=0; i<dim[1]*dim[2]*dim[3]; i++)
-    {
-        filemem0[i] = ((short*)nin->data)[i*2];
-        filemem1[i] = ((short*)nin->data)[i*2+1];
-    }
-
-
-
-
 
     double mat_trans_inv[4][4];
     invertMat44(mat_trans,mat_trans_inv);
@@ -744,14 +692,14 @@ int main(int argc, const char **argv)
 
     // --- Copy data to 3D array (host to device)
     cudaMemcpy3DParms copyParams1 = {0};
-    copyParams1.srcPtr   = make_cudaPitchedPtr((void*)filemem1, volumeSize.width*pixSize, volumeSize.width, volumeSize.height);
+    copyParams1.srcPtr   = make_cudaPitchedPtr((void*)(((short*)nin->data)+dim[1]*dim[2]*dim[3]), volumeSize.width*sizeof(short), volumeSize.width, volumeSize.height);
     copyParams1.dstArray = d_volumeArray1;
     copyParams1.extent   = volumeSize;
     copyParams1.kind     = cudaMemcpyHostToDevice;
     cudaMemcpy3D(&copyParams1);
 
     cudaMemcpy3DParms copyParams0 = {0};
-    copyParams0.srcPtr   = make_cudaPitchedPtr((void*)filemem0, volumeSize.width*pixSize, volumeSize.width, volumeSize.height);
+    copyParams0.srcPtr   = make_cudaPitchedPtr((void*)((short*)nin->data), volumeSize.width*sizeof(short), volumeSize.width, volumeSize.height);
     copyParams0.dstArray = d_volumeArray0;
     copyParams0.extent   = volumeSize;
     copyParams0.kind     = cudaMemcpyHostToDevice;
@@ -850,7 +798,7 @@ int main(int argc, const char **argv)
     dim3 threadsPerBlock(numThread1D,numThread1D);
     dim3 numBlocks((size[0]+numThread1D-1)/numThread1D,(size[1]+numThread1D-1)/numThread1D);
 
-    kernel<<<numBlocks,threadsPerBlock>>>(d_dim, d_size, hor_extent, ver_extent, channel, pixSize,
+    kernel<<<numBlocks,threadsPerBlock>>>(d_dim, d_size, hor_extent, ver_extent,
                                           d_center, d_viewdir, d_right, d_up, d_light_dir, nc, fc, raystep, refstep, d_mat_trans,
                                           d_mat_trans_inv, d_MT_BE_inv, phongKa, phongKd, isoval, alphamax, thickness, nOutChannel, d_imageDouble                                          
                                           );
